@@ -26,12 +26,11 @@ The pieces are visualized with their color initial ('W' for white, 'B' for black
 * Valid move checker
 * Turn Control 
 * Error control
+* Check & Checkmates Control
 
 ## Functionalities To Be Implemented in the Future
 
 * Castling
-* Checks
-* Checkmates 
 * Importing and Exporting
 * Undo
 * GUI
