@@ -3,7 +3,7 @@ package chess;
 // The ChessBoard class implements a chess board that holds all the chess pieces
 class ChessBoard {
     private final ChessPiece[][] board;
-    private final int BOARD_SIZE = 8;
+    private final int BOARD_SIZE = 8; // DO NOT CHANGE. If it changes, everything breaks
 
     // Creates and prepares the chess board for a new game
     ChessBoard() {

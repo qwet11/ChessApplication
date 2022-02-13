@@ -1,26 +1,33 @@
 package chess;
 
-
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
 public class ChessGame {    
     private final ChessBoard chessBoard;
     private ChessPiece.Color currTurnColor; // Color for this turn
+    private List<String> chessMoves; // List of moves
+
+    /* 
+    NOTE: 
+    Having these variables static contradicts the logic of the game, however it is the only solution I could come up with
+    Only one ChessGame could be initiated at once for these values to work
+    */
 
     // Store position of White King
-    private int whiteKingRow;
-    private int whiteKingCol;
+    int whiteKingRow;
+    int whiteKingCol;
 
     // Store position of Black King
-    private int blackKingRow;
-    private int blackKingCol;
+    int blackKingRow;
+    int blackKingCol;
 
 	// Needed to detect en passant
-    private int lastSRow;
-    private int lastERow;
-    private int lastECol;
-    private boolean enPassant;
+    static int lastSRow;
+    static int lastERow;
+    static int lastECol;
 
     /**
      * Initialize a new chess board
@@ -28,6 +35,7 @@ public class ChessGame {
     public ChessGame() {
         chessBoard = new ChessBoard();
         currTurnColor = ChessPiece.Color.WHITE;
+        chessMoves = new LinkedList<>();
 
         // Initiates the king positions
         whiteKingRow = 7;
@@ -40,12 +48,26 @@ public class ChessGame {
 		lastERow = -1;
 		lastECol = -1;
     }
-
+    
     /**
      * Makes a move, updates the board, and changes turn to next player.
      * @param move the chess move you want to make (e.g. e4, Na4)
      */
     public void makeMove(String move) throws ChessException {
+        // All chess notation formats
+        String format1 = "^[a-h][1-8]$"; // e.g e5, h7
+        String format2 = "^[RNBQK][a-h][1-8]$"; // e.g Nc3, Qh5
+        String format3 = "^[RNBQKa-h]x[a-h][1-8]$"; // Bxc4, Kxd8
+        String format4 = "^[RNBQK][a-h][a-h][1-8]$"; // Nad5, Rfd1
+        String format5 = "^[RNBQK][a-h]x[a-h][1-8]$"; // Raxc7, Qcxh2
+        String format6 = "^O-O$"; // O-O
+        String format7 = "^O-O-O$"; // O-O-O
+        String regex = String.format("%1$s|%2$s|%3$s|%4$s|%5$s|%6$s|%7$s", format1, format2, format3, format4, format5, format6, format7);
+
+        if(!move.matches(regex)) {
+            throw new ChessException("Invalid Move format. Please enter a valid move");
+        }
+
         ChessPiece[][] board = chessBoard.getBoard();
 
         // If move is valid, no error is thrown
@@ -54,14 +76,26 @@ public class ChessGame {
         int sRow = posCoords[0], sCol = posCoords[1];
         int eRow = posCoords[2], eCol = posCoords[3];
 
+        if(Pawn.enPassant(board, lastSRow, lastERow, lastECol, sRow, sCol, eRow, eCol)) {
+            // Special case for en passant
+            board[lastERow][lastECol] = null;
+        } else if(King.pseudoKingsideCastling(board, sRow, sCol, eRow, eCol)) {
+            // Special case for kingside castling
+            int tempRow = (board[sRow][sCol].getColor() == ChessPiece.Color.WHITE) ? 7 : 0;
+
+            board[tempRow][5] = board[tempRow][7];
+            board[tempRow][7] = null;
+        } else if(King.pseudoQueensideCastling(board, sRow, sCol, eRow, eCol)) {
+            // Special case for kingside castling
+            int tempRow = (board[sRow][sCol].getColor() == ChessPiece.Color.WHITE) ? 7 : 0;
+
+            board[tempRow][3] = board[tempRow][0];
+            board[tempRow][0] = null;
+        }
+
         // Move piece to endPos
         board[eRow][eCol] = board[sRow][sCol];
         board[sRow][sCol] = null;
-
-        // Special case for en passant
-        if(enPassant) {
-            board[lastERow][lastECol] = null;
-        }
 
         // Check if King moved
         if(sRow == whiteKingRow && sCol == whiteKingCol) {
@@ -75,15 +109,23 @@ public class ChessGame {
         lastSRow = sRow;
         lastERow = eRow;
         lastECol = eCol;
-        enPassant = false;
 
         // Switches color to the color of the next turn
         currTurnColor = currTurnColor.next();
+
+        // Adds move to list
+        chessMoves.add(move);
+
+        // Update moved feature of piece
+        if(board[eRow][eCol] != null) {
+            board[eRow][eCol].moved = true;
+        }
     }
 
     /**
      * Checks if the given color is in check
      * @param board the board analyzed for checks
+     * @param color the color who is checked for checks
      * @param kingRow the row of the King (of the color)
      * @param kingCol the column of the King (of the color)
      * @return true if given color is in check; false otherwise
@@ -93,7 +135,7 @@ public class ChessGame {
             for(int col = 0; col < board[0].length; col++) {
                 // If opponent piece can capture the king, then it is check
                 try {
-                    if(board[row][col] != null && board[row][col].getColor() != currTurnColor && isValidMoveWithoutCheckChecker(board, board[row][col].getColor(), row, col, kingRow, kingCol)) {
+                    if(board[row][col] != null && board[row][col].getColor() != color && pseudoValidate(board, board[row][col].getColor(), row, col, kingRow, kingCol)) {
                         return true;
                     }
                 } catch (ChessException e) {
@@ -133,6 +175,29 @@ public class ChessGame {
         return chessBoard.printBoard();
     }
 
+    public void exportGame(String fileName) {
+        try {
+            FileWriter writer = new FileWriter(String.format("%s.pgn", fileName), true);
+            boolean isWhite = true;
+            int moveIndex = 1;
+
+            for(String move : chessMoves) {
+                if(isWhite) {
+                    writer.write(String.format("%s. %s ", moveIndex, move));
+                } else {
+                    writer.write(String.format("%s ", move));
+                    moveIndex++;
+                }
+
+                isWhite = !isWhite;
+            }
+
+            writer.close();
+        } catch (IOException e) {
+            throw new ChessException("An error occurred!");
+        }
+    }
+    
     /**
      * Returns the color of the player whose turn it is.
      * @return the currTurnColor object that contains the color of the current player
@@ -241,22 +306,7 @@ public class ChessGame {
 
         if(isCheck(board, currTurnColor, kingRow, kingCol)) {
             // Make a copy of the board 
-            ChessPiece[][] tempBoard = new ChessPiece[board.length][board[0].length];
-            for(int row = 0; row < board.length; row++) {
-                for(int col = 0; col < board[0].length; col++) {
-                    tempBoard[row][col] = board[row][col];
-                }
-            }
-
-            // Make the move (whether legal or not) 
-            tempBoard[eRow][eCol] = tempBoard[sRow][sCol];
-            tempBoard[sRow][sCol] = null;
-
-            // Special case for en passant
-            // TODO: Fix this
-            if(enPassant) {
-                tempBoard[lastERow][lastECol] = null;
-            }
+            ChessPiece[][] tempBoard = getCopyBoard(board, sRow, sCol, eRow, eCol);
 
             // Check if King moved
             if(sRow == whiteKingRow && sCol == whiteKingCol) {
@@ -275,186 +325,12 @@ public class ChessGame {
         }
 
         // Check if move is legal
-        switch(piece.getSymbol()) {
-            case('K'):
-                // King
-                // Able to move to any square 1 away
-                return Math.abs(eRow - sRow) <= 1 && Math.abs(eCol - sCol) <= 1;
-            case 'N':
-                // Knight
-                return (Math.abs(eRow - sRow) == 1 && Math.abs(eCol - sCol) == 2)
-                        || (Math.abs(eRow - sRow) == 2 && Math.abs(eCol - sCol) == 1);
-            case 'p':
-                // Pawn
-                if(currTurnColor == ChessPiece.Color.WHITE) {
-                    // White
-                
-                    if(sRow - eRow == 1 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move one square in front (if empty)
-                        return true;
-                    } else if(sRow == 6 && sRow - eRow == 2 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move 2 squares in front
-                        return true;
-                    } else if(Math.abs(eCol - sCol) == 1 && sRow - 1 == eRow && board[eRow][eCol] != null) {
-                        //Capture piece 
-                        return true;
-                    } else if(sRow == 3 && Math.abs(eCol - sCol) == 1 && lastSRow != -1) {
-                        // En passant
-
-                        // Checks if (1) there is a pawn next to it, (2) the pawn moved 2 squares
-                        if(board[lastERow][lastECol].getSymbol() == 'p' && lastECol == eCol && lastERow - lastSRow == 2) {
-                            enPassant = true;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                } else {
-                    // Black
-                    if(eRow - sRow == 1 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move one square in front (if empty)
-                        return true;
-                    } else if(sRow == 1 && eRow - sRow == 2 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move 2 squares in front
-                        return true;
-                    } else if(Math.abs(eCol - sCol) == 1 && eRow - 1 == sRow && board[eRow][eCol] != null) {
-                        //Capture piece
-                        return true;
-                    } else if(sRow == 4 && Math.abs(eCol - sCol) == 1 && lastSRow != -1) {
-                        // En passant
-                        // Checks if (1) there is a pawn next to it, (2) the pawn moved 2 squares
-                        if(board[lastERow][lastECol].getSymbol() == 'p' && lastECol == eCol && lastSRow - lastERow == 2) {
-                            enPassant = true;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                }
-            case 'R':
-                // Rook
-
-                // Check if there is a piece in the way
-                if(sRow == eRow) {
-                    // Check vertical
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-
-                    for(int col = start+1; col < end; col++) {
-                        if(board[sRow][col] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol == eCol) {
-                    // Check horizontal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-
-                    for(int row = start+1; row < end; row++) {
-                        if(board[row][sCol] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-            case 'B':
-                // Bishop 
-                /*
-                 When a piece is on the same backward diagonal (\-diagonal), col-row difference is constant
-                 When a piece is on the same forward diagonal (/-diagonal), col+row sum is constant
-                */
-                if(sRow + sCol == eRow + eCol) {
-                    // Forward diagonal
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-                    int sum = sRow + sCol;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[sum-i][i] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol - sRow == eCol - eRow) {
-                    // Backward diagonal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-                    int dif = sCol - sRow;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[i][i+dif] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-            case 'Q':
-                //Rook and Bishop
-                if(sRow == eRow) {
-                    // Check vertical
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-
-                    for(int col = start+1; col < end; col++) {
-                        if(board[sRow][col] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol == eCol) {
-                    // Check horizontal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-
-                    for(int row = start+1; row < end; row++) {
-                        if(board[row][sCol] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sRow + sCol == eRow + eCol) {
-                    // Forward diagonal
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-                    int sum = sRow + sCol;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[sum-i][i] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol - sRow == eCol - eRow) {
-                    // Backward diagonal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-                    int dif = sCol - sRow;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[i][i+dif] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-        }
-        return false;
+        return board[sRow][sCol].isLegal(board, sRow, sCol, eRow, eCol);
     }
 
     // Returns true if a move is valid. Returns false otherwise
     // Does not check if it is check
-    private boolean isValidMoveWithoutCheckChecker(ChessPiece[][] board, ChessPiece.Color color, int sRow, int sCol, int eRow, int eCol) throws ChessException {
+    private boolean pseudoValidate(ChessPiece[][] board, ChessPiece.Color color, int sRow, int sCol, int eRow, int eCol) throws ChessException {
         // Check if move (end square) is out of bounds
         if(eRow < 0 || eRow >= board.length || eCol < 0 || eCol >= board.length) {
             throw new ChessException("Invalid Move: Out of bounds");
@@ -482,181 +358,7 @@ public class ChessGame {
         }
 
         // Check if move is legal
-        switch(piece.getSymbol()) {
-            case('K'):
-                // King
-                // Able to move to any square 1 away
-                return Math.abs(eRow - sRow) <= 1 && Math.abs(eCol - sCol) <= 1;
-            case 'N':
-                // Knight
-                return (Math.abs(eRow - sRow) == 1 && Math.abs(eCol - sCol) == 2)
-                        || (Math.abs(eRow - sRow) == 2 && Math.abs(eCol - sCol) == 1);
-            case 'p':
-                // Pawn
-                if(color == ChessPiece.Color.WHITE) {
-                    // White
-                
-                    if(sRow - eRow == 1 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move one square in front (if empty)
-                        return true;
-                    } else if(sRow == 6 && sRow - eRow == 2 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move 2 squares in front
-                        return true;
-                    } else if(Math.abs(eCol - sCol) == 1 && sRow - 1 == eRow && board[eRow][eCol] != null) {
-                        //Capture piece 
-                        return true;
-                    } else if(sRow == 3 && Math.abs(eCol - sCol) == 1 && lastSRow != -1) {
-                        // En passant
-
-                        // Checks if (1) there is a pawn next to it, (2) the pawn moved 2 squares
-                        if(board[lastERow][lastECol].getSymbol() == 'p' && lastECol == eCol && lastERow - lastSRow == 2) {
-                            enPassant = true;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                } else {
-                    // Black
-                    if(eRow - sRow == 1 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move one square in front (if empty)
-                        return true;
-                    } else if(sRow == 1 && eRow - sRow == 2 && sCol == eCol && board[eRow][eCol] == null) {
-                        // Move 2 squares in front
-                        return true;
-                    } else if(Math.abs(eCol - sCol) == 1 && eRow - 1 == sRow && board[eRow][eCol] != null) {
-                        //Capture piece
-                        return true;
-                    } else if(sRow == 4 && Math.abs(eCol - sCol) == 1 && lastSRow != -1) {
-                        // En passant
-                        // Checks if (1) there is a pawn next to it, (2) the pawn moved 2 squares
-                        if(board[lastERow][lastECol].getSymbol() == 'p' && lastECol == eCol && lastSRow - lastERow == 2) {
-                            enPassant = true;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                }
-            case 'R':
-                // Rook
-
-                // Check if there is a piece in the way
-                if(sRow == eRow) {
-                    // Check vertical
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-
-                    for(int col = start+1; col < end; col++) {
-                        if(board[sRow][col] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol == eCol) {
-                    // Check horizontal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-
-                    for(int row = start+1; row < end; row++) {
-                        if(board[row][sCol] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-            case 'B':
-                // Bishop 
-                /*
-                 When a piece is on the same backward diagonal (\-diagonal), col-row difference is constant
-                 When a piece is on the same forward diagonal (/-diagonal), col+row sum is constant
-                */
-                if(sRow + sCol == eRow + eCol) {
-                    // Forward diagonal
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-                    int sum = sRow + sCol;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[sum-i][i] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol - sRow == eCol - eRow) {
-                    // Backward diagonal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-                    int dif = sCol - sRow;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[i][i+dif] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-            case 'Q':
-                //Rook and Bishop
-                if(sRow == eRow) {
-                    // Check vertical
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-
-                    for(int col = start+1; col < end; col++) {
-                        if(board[sRow][col] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol == eCol) {
-                    // Check horizontal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-
-                    for(int row = start+1; row < end; row++) {
-                        if(board[row][sCol] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sRow + sCol == eRow + eCol) {
-                    // Forward diagonal
-                    int start = Math.min(sCol, eCol);
-                    int end = Math.max(sCol, eCol);
-                    int sum = sRow + sCol;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[sum-i][i] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else if(sCol - sRow == eCol - eRow) {
-                    // Backward diagonal
-                    int start = Math.min(sRow, eRow);
-                    int end = Math.max(sRow, eRow);
-                    int dif = sCol - sRow;
-
-                    for(int i = start+1; i < end; i++) {
-                        if(board[i][i+dif] != null) {
-                            return false;
-                        }
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-        }
-        return false;
+        return board[sRow][sCol].isLegal(board, sRow, sCol, eRow, eCol);
     }
 
     
@@ -675,25 +377,54 @@ public class ChessGame {
     // NOTE: This is a very brute force method
     // TODO: Make this method more efficient in the future
     private int[] getAllCoord(String move) throws ChessException {
-
-        String ePos = move.substring(move.length() - 2);
-        int eRow = getCoord(ePos)[0];
-        int eCol = getCoord(ePos)[1];
-
-        char pieceSymbol = (move.matches("^[a-h][1-8]$") || move.matches("^[a-h]x[a-h][1-8]$")) ? 'p' : move.charAt(0);
         List<int[]> list = new LinkedList<>();
         ChessPiece[][] board = chessBoard.getBoard();
+        int eRow = -1, eCol = -1; // default
 
-        for(int row = 0; row < board.length; row++) {
-            for(int col = 0; col < board[0].length; col++) {
-                try {
-                    if (board[row][col] != null && board[row][col].getSymbol() == pieceSymbol && isValidMove(board, row, col, eRow, eCol)) {
-                        list.add(new int[]{row, col});
-                    }
-                } catch(ChessException e) {
-					continue;
+        switch(move) {
+            case "O-O":
+                // Kingside castling
+                if(currTurnColor == ChessPiece.Color.WHITE && isValidMove(board, 7, 4, 7, 5) && isValidMove(board, 7, 4, 7, 6)) {
+                    list.add(new int[]{7, 4});
+                    eRow = 7;
+                    eCol = 6;
+                } else if(currTurnColor == ChessPiece.Color.BLACK && isValidMove(board, 0, 4, 0, 5) && isValidMove(board, 0, 4, 0, 6)) {
+                    list.add(new int[]{0, 4});
+                    eRow = 0;
+                    eCol = 6;
                 }
-            }
+                break;
+            case "O-O-O":
+                // Queenside castling
+                if(currTurnColor == ChessPiece.Color.WHITE && isValidMove(board, 7, 4, 7, 3) && isValidMove(board, 7, 4, 7, 2)) {
+                    list.add(new int[]{7, 4});
+                    eRow = 7;
+                    eCol = 2;
+                } else if(currTurnColor == ChessPiece.Color.BLACK && isValidMove(board, 0, 4, 0, 3) && isValidMove(board, 0, 4, 0, 2)) {
+                    list.add(new int[]{0, 4});
+                    eRow = 0;
+                    eCol = 2;
+                }
+                break;
+            default:
+                String ePos = move.substring(move.length() - 2);
+                eRow = getCoord(ePos)[0];
+                eCol = getCoord(ePos)[1];
+
+                char PIECE_SYMBOL = (move.matches("^[a-h][1-8]$") || move.matches("^[a-h]x[a-h][1-8]$")) ? 'p' : move.charAt(0);
+
+                for(int row = 0; row < board.length; row++) {
+                    for(int col = 0; col < board[0].length; col++) {
+                        try {
+                            if (board[row][col] != null && board[row][col].getSymbol() == PIECE_SYMBOL && isValidMove(board, row, col, eRow, eCol)) {
+                                list.add(new int[]{row, col});
+                            }
+                        } catch(ChessException e) {
+                            continue;
+                        }
+                    }
+                }
+                break;
         }
 
         if(list.size() == 0) {
@@ -721,5 +452,30 @@ public class ChessGame {
                 throw new ChessException("Invalid Move: Multiple options");
             }
         }
+    }
+
+    private ChessPiece[][] getCopyBoard(ChessPiece[][] board, int sRow, int sCol, int eRow, int eCol) {
+        // Make a copy of the board 
+        ChessPiece[][] tempBoard = new ChessPiece[board.length][board[0].length];
+        for(int row = 0; row < board.length; row++) {
+            for(int col = 0; col < board[0].length; col++) {
+                if(board[row][col] == null) {
+                    tempBoard[row][col] = null;
+                } else {
+                    tempBoard[row][col] = (ChessPiece) board[row][col].clone();
+                }
+            }
+        }
+
+        // Make the move (whether legal or not) 
+        tempBoard[eRow][eCol] = tempBoard[sRow][sCol];
+        tempBoard[sRow][sCol] = null;
+
+        // Special case for en passant
+        if(Pawn.enPassant(tempBoard, lastSRow, lastERow, lastECol, sRow, sCol, eRow, eCol)) {
+            tempBoard[lastERow][lastECol] = null;
+        }
+
+        return tempBoard;
     }
 }

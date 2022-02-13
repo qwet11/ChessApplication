@@ -13,8 +13,6 @@ The input must follow the rules of general chess notation (see [Wikipedia](https
 
 Some examples of valid chess moves are e4, Nc3, Bxf7, Rad8, and Nbxd7.
 
-**NOTE:** The current version of this application does not support castling, checks, checkmates, or exporting. These functionalities will be added in the future.
-
 The pieces are visualized with their color initial ('W' for white, 'B' for black) followed by their symbol ('p' for pawns). For example, "Wp" for white pawns.  
 
 ## Functionalities Implemented
@@ -27,11 +25,10 @@ The pieces are visualized with their color initial ('W' for white, 'B' for black
 * Turn Control 
 * Error control
 * Check & Checkmates Control
-
-## Functionalities To Be Implemented in the Future
-
 * Castling
-* Importing and Exporting
+* Exporting
+## Functionalities To Be Implemented in the Future
+* Importing
 * Undo
 * GUI
 * Web Application
