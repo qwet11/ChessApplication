@@ -6,8 +6,7 @@ import java.util.Scanner;
  * Main class for chess application
  */
 public class Main {
-
-	public static void main(String[] args) {
+	private static void playGameOnCLI() {
 		ChessGame game = new ChessGame();
 		Scanner input = new Scanner(System.in);
 		boolean isRunning = true;
@@ -36,5 +35,9 @@ public class Main {
 		
 
 		input.close();
+	}
+
+	public static void main(String[] args) {
+		playGameOnCLI();
 	}
 }
